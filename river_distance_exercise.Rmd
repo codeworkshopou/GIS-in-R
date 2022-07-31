@@ -1,0 +1,244 @@
+---
+title: 'Stream Ecology in R: an introductory GIS workshop'
+author: "Alex Franzen"
+date: ' 8 June 2022'
+output:
+  html_document:
+    df_print: paged
+  toc: yes
+  theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## In this lesson you will learn about some basic concepts in stream ecology, such as calculating river distance and conducting a mantel test. These are useful for calculating how connected river systems are and testing for an isolation-by-distance effect. We'll go into more detail as we get further along in the lesson, but this is the gist of what we are going to do. For the most part, all you need to do is run the lines of code that I have written, but for some thing you will need to edit lines of code for it to run on your computer. Lines of code that will need to be edited by you will have a "#" in front of them and an instruction on what to do. If you have any questions, please email me at ajfranzen@ou.edu or feel free to use the resources of the internet if you are able to find a different solution. The beauty of R is that it is open source and continually evolving, so there are almost always multiple paths to accomplish what you are trying to do.
+
+# Part 1: Introduction to mapping spatial data
+
+```{r basic mapping}
+## This first part will be about learning to map spatial data using R. Usually, GIS analyses and mapping is done in specialized programs, such as ArcGIS or QGIS. However, those programs do have a learning curve and also have expensive licensing charges. Luckily for our purposes we can do essentially the same thing in R (which is free and open source)! 
+
+## First, let's get an idea of what our study area looks like by mapping the a river basin is southeastern Oklahoma. River basins, also called watershed, are categorized by the US Geological Survey into a nested network called Hydrologic Unit Codes (HUCs). These HUCs have broad applications in ecological and environmental studies and are organized by a sequence of numbers or letters that identify a hydrological feature like a river, river reach, lake, or area like a drainage basin. We're going to focus on the HUC 8 level. We are going to map the Red River region and eventually make our way to the Kiamichi River basin. 
+
+## Spatial data can be stored in a number of different formats, but one of the most common is called a shapefile. These contain a bunch of different spatial data that is used in the ArcGIS software. We can obtain shapefiles of different HUCs directly from the USGS website. 
+
+## First things first though, we will need to install and load the following packages that we will be using for this part. 
+
+## To install a package, you can use this generic format: install.packages('package.name')
+
+## These are the packages you will need to install (if you have not previously). Un-comment the next few lines. 
+
+#install.packages('sf')
+#install.packages('sp')
+#install.packages('rgdal')
+#install.packages('ggplot2')
+#install.packages('dplyr')
+#install.packages('maps')
+#install.packages('ggspatial')
+
+## Once you install all of the packages, you need to load them into the workspace. To load a package, enter the library function followed by the package name (see below) on a new line and then run that line of code. All you need to do is run the next few lines of code. 
+
+library(sf)
+library(sp)
+library(rgdal)
+library(ggplot2)
+library(dplyr)
+library(maps)
+
+## To load our shape files, we are going to use the st_read() function from the sf package. 
+
+ARW<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/KiamichiHUCs/WBDHU2.shp") # this reads in the HUC 2 polygon shapefile for the Arkansas-Red-White River region. YOU WILL NEED TO CHANGE THE PATH NAME TO WHERE YOU STORE THE FILES ON YOUR COMPUTER! You will need to do this whenever there is a file upload. 
+
+## Now that we have our shapefile loaded, let's plot our area. To give ourselves some reference, we are first going to plot a map of the US. 
+
+states<-st_as_sf(map("state", plot = FALSE, fill = TRUE)) # this uses the "maps" package to make a map of the lower 48 states. 
+head(states)
+sf::sf_use_s2(FALSE)
+states <- cbind(states, st_coordinates(st_centroid(states)))
+library(tools) # this is part of the ggplot2 package, so we didn't need to install it. 
+states$ID <- toTitleCase(states$ID)
+
+US<-ggplot() + geom_sf(data = states, color = "black", fill = NA) + geom_label(data = states, aes(X, Y, label = ID), size = 2, fontface = "bold") + xlab("Longitude") + ylab("Latitude") + coord_sf()
+US
+
+## We can now plot our HUC region
+
+region<-ggplot() + geom_sf(data = ARW, color = "black", fill = "orange") + ggtitle("Arkansas-Red-White Region") + coord_sf()
+
+## Let's put the two together!
+
+region + geom_sf(data = states, color = "black", fill = NA) + geom_label(data = states, aes(X, Y, label = ID), size = 2, fontface = "bold", nudge_y = states$nudge_y) + xlab("Longitude") + ylab("Latitude") + coord_sf() # this will likely take a minute to run since the HUC 2 is a large area. 
+
+## Ok, now let's map the HUC 6 level. 
+
+RedLittle<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/KiamichiHUCs/WBDHU6.shp")
+basin<-ggplot() + geom_sf(data = RedLittle, color = "black", fill = "orange") + ggtitle("Red-Little River basin") + coord_sf()
+basin
+
+## Let's overlay our HUC 6 layer on top of the HUC 2 layer to show how each HUC is nested within one another. 
+
+region + geom_sf(data = RedLittle, color = "black", fill = "red") + ggtitle("Arkansas-White-Red River region", subtitle = "with Red-Little River basin") + coord_sf()
+
+## Finally, let's map the Kiamichi River basin (watershed)
+
+KiamichiHUC8<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/KiamichiHUCs/WBDHU8.shp") # this reads the HUC 8 polygon (our HUC 8)
+
+watershed<-ggplot() + geom_sf(data = KiamichiHUC8, size = 1, color = "black", fill = "brown") + ggtitle("Kiamichi River watershed") + coord_sf() # let's plot our watershed area
+watershed
+
+## we can see all of our layers put together, but let's zoom in on just the south-central US.
+
+south.central.us<-states[c(3,5,15,17,24,30,35,42),]
+
+library(ggspatial)
+
+region + geom_sf(data = RedLittle, color = "black", fill = "red") + geom_sf(data = KiamichiHUC8, size = 1, color = "black", fill = "brown") + ggtitle("Arkansas-White-Red River region", subtitle = "with Red-Little River and Kiamichi River basins") + geom_sf(data = south.central.us, color = "black", fill = NA) + geom_label(data = south.central.us, aes(X, Y, label = ID), size = 2, fontface = "bold") + xlab("Longitude") + ylab("Latitude") + annotation_scale(location = "bl", width_hint = 0.4) + annotation_north_arrow(location = "bl", which_north = "true", pad_x = unit(0.0, "in"), pad_y = unit(0.2, "in"), style = north_arrow_fancy_orienteering) + coord_sf() # again, this might take a minute to run. 
+
+## That's enough comparing areas, let's add some data to our HUC 8 layer!
+
+## First, let's read in and plot the NHD Flowlines shapefile. This is basically all of the "streams" contained within our watershed. 
+
+Kiamichi_NHDflowlines<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/Kiamichi_NHDFlowlines/Kiamichi_NHDFlowlines.shp")
+watershed + geom_sf(data = Kiamichi_NHDflowlines, color = "blue") + coord_sf()
+
+## There's a lot going on in that map, so I've simplified the file. Let's read in and map the edited file. 
+
+Kiamichi_NHDflowlines_edited<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/Kiamichi_NHDFlowlines_edited/Kiamichi_NHDFlowlines_edited.shp")
+watershed + geom_sf(data = Kiamichi_NHDflowlines_edited, color = "blue", size = 1) + coord_sf()
+
+## Now, let's add any waterbodies that are not "flowing". On the Kiamichi River, there are two major impoundments, Sardis Lake and Hugo Lake. 
+
+Kiamichi_waterbodies<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/KiamichiHUCs/NHDWaterbody.shp")
+
+## Let's map the HUC 8 area, flowlines, and waterbodies. 
+
+watershed + geom_sf(data = Kiamichi_NHDflowlines_edited, color = "blue", size = 1) + geom_sf(data = Kiamichi_waterbodies, color = "blue", fill = "blue") + coord_sf()
+
+## There's a lot of water in this basin!!
+
+## We'll use this data set in the next section, but let's plot some points on to our map. Load the "mussel_beds" shapefile. 
+
+mussel_beds<-st_read("/Users/alexfranzen/unionidae/CODE_workshop/mussel_beds/mussel_beds.shp")
+
+## Let's plot the whole thing!
+
+watershed + geom_sf(data = Kiamichi_NHDflowlines_edited, color = "blue") + geom_sf(data = Kiamichi_waterbodies, color = "black", fill = "blue") + geom_sf(data = mussel_beds, color = "red", KiamichiHUCs = 17, size = 2) + coord_sf()
+
+## What a pretty map!
+
+```
+
+# Part 2: Calculating river distance between a group of points
+
+```{r riverdist}
+
+### Now that we have done some basic map making, let's actually run some spatial analyses. For this next part, we are going to calculate the distance between points in a river network. Normally, distance can be calculated in a fashion known as euclidean distance, or "as the crow flies", which is the most direct route between two points. However, this is not reflective of the actually distance one travels down a river or over a mountain, for example. Sometimes the only way to travel to a destination may not be the most direct. 
+
+### We'll be using some of the package we loaded before, but for this part we will need to load an additional package. 
+
+## remove the comments from the next line of code
+#install.packages('riverdist')
+library(riverdist)
+
+## First we need to make our network of streams. For simplicity, I've made a shapefile of only the Kiamichi River and Jack Fork Creek (a major tributary). 
+
+Kiamichi<-line2network(path="/Users/alexfranzen/unionidae/CODE_workshop/Kiamichi_River/Kiamichi_River.shp", layer = "Kiamichi_River", reproject = "+proj=lcc +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs") # this creates the river network. We need to reproject our shapefile coordinate system so that it can be projected in ggplot. 
+
+plot(Kiamichi) # let's plot our network. 
+topologydots(rivers = Kiamichi) # For our route and distance calculations to work, the topologies must be correct, with all the right segments being treated as connected. The topologydots() function can check for this, and plots connected segment endpoints as green, and non-connected endpoints as red. 
+
+## Looks like the Jack Fork Creek segment is not connected to our network. We can fix this, but for simplicity we are just going to skip over it and ommit any points from those segments. 
+## Now we are going to work with our mussel beds data. In my lab, we study the ecology and conservation biology of stream ecosystems using benthic organisms as models. Much of our  work focuses on freshwater mussels, a group where 70% of the North American species are considered threatened. Mussels are keystone species in many rivers and their catastrophic decline may lead to the decline of other faunas and the alteration of other river ecosystem processes. Mussels are mainly riverine animals and have unusual life histories making them ideal for understanding how dispersal influences diversification and species recognition. Adult mussels are sedentary and dispersal is via a larval stage attached to fish hosts (Haag 2012). Thus, mussel dispersal is dependent on the movement of fish hosts through dendritic river networks. The intimate and unique nature of this relationship has catalyzed mussel diversification by allowing for dispersal upstream and between river systems.
+
+## The US Interior Highlands mussel fauna has high species richness (S = 63) and endemicity (14%; Haag 2012), and includes the Ouachita and Ozark Mountains of eastern Oklahoma, northwest Arkansas, and southwest Missouri. The Kiamichi River is part of this area. We are going to calculate distance between some know mussel beds on the Kiamichi. 
+
+mussel_beds<-pointshp2segvert(path = "/Users/alexfranzen/unionidae/CODE_workshop/mussel_beds/mussel_beds.shp", layer = "mussel_beds", rivers = Kiamichi)
+
+mussel_beds<-mussel_beds[-c(1),] # We are going to remove the Jack Fork creek point, since it is not connected to the network.  
+
+## Let's plot our points on our river network. 
+
+plot(Kiamichi)
+points(mussel_beds$lat_n, mussel_beds$long_w, pch=16, col="red")
+riverpoints(seg = mussel_beds$seg, vert = mussel_beds$vert, rivers = Kiamichi, pch = 15, col = "blue")
+
+## This function is used to verify that there is a route in our network between a set of points. 
+
+detectroute(start = 3, end = 4, rivers = Kiamichi) 
+
+## We can see there is a viable route between segments 3 and 4.
+
+# Let's take a quick look at our data so we can enter specific information to calculate distance. 
+print(mussel_beds)
+
+## Now lets calculate distance between two points. I chose the "Muse" site and the "K12" site. To calculate distance, you enter in the starting segment and vertex information, then do the same for your end point.
+
+riverdistance(startseg = 5, startvert = 939, endseg = 3, endvert = 286 , rivers = Kiamichi, map = TRUE)
+
+## Nice! We can see that the distance between Muse and K12 is 199914.6 meters! We can also get a visualization of that calculation. Let's do one more. 
+
+riverdistance(startseg = 5, startvert = 1593, endseg = 4, endvert = 97 , rivers = Kiamichi, map = TRUE)
+
+## The distance from K2 to Tammys is 35051.06 meters!
+
+## Instead of doing each calculation one at a time, we can calculate a distance matrix. This is a pairwise calculation that will find the distance between all points. 
+
+distmatrix<-riverdistancemat(seg = mussel_beds$seg, vert = mussel_beds$vert, rivers = Kiamichi) # calculation
+siteID<-c("Muse", "K2", "Tammys", "KS", "K7", "Antlers", "K12") # list of site names
+colnames(distmatrix)<-siteID # add column names to our matrix
+rownames(distmatrix)<-siteID # add row names to our matrix
+print(distmatrix)
+
+## Let's quickly convert our calculations from meters to kilometers
+
+distmatrix<-t(distmatrix/1000)
+print(distmatrix)
+
+## We can also convert km to mi. 
+
+distmatrix<-t(distmatrix*0.62137)
+print(distmatrix)
+
+## Sweet, now we know how far we would need to travel the river to get between our mussel beds. 
+
+```
+
+# Part 3: Mantel Test
+
+```{r mantel test}
+
+### For this final part, we are going to implement a Mantel test on our river distance matrix and some example genetic data to test for isolation-by-distance for populations of mussels at each site. The Mantel test basically tests if  variation in genetic distance (Fst) is correlated to the variation in geographical distance. 
+
+## You will need to install the following packages:
+
+#install.packages('hierfstat')
+#install.packages('ade4')
+
+library(hierfstat)
+library(ade4)
+library(ggplot2) # load ggplot again, just in case. 
+
+## First, we need to read in the genetic data for a species of mussel, *Fusconaia flava*. In this example, we sampled 12 individuals from each site (population). For simplicity, I've already calculated Fst. 
+
+Kiamichi_flava_FST_pairwise<-read.csv("Kiamichi_flava_pairwise_Fst.csv", header=FALSE) # reads in the csv file
+colnames(Kiamichi_flava_FST_pairwise)<-siteID # add column names to our matrix
+rownames(Kiamichi_flava_FST_pairwise)<-siteID # add row names to our matrix
+print(Kiamichi_flava_FST_pairwise)
+
+
+## time for the Mantel test
+
+## Here, we run a Mantel test with 5000 permutations for randomization test on Fst values. 
+
+distmatrix<-as.dist(distmatrix) # we need to coerce our matrix to a dist vector
+print(distmatrix)
+Kiamichi_flava_FST_pairwise<-as.dist(Kiamichi_flava_FST_pairwise) # we need to coerce our matrix to a dist vector
+print(Kiamichi_flava_FST_pairwise)
+isobydist<-mantel.randtest(Kiamichi_flava_FST_pairwise, distmatrix, nrepet = 1000) # testing for isolation-by-distance
+plot(isobydist, main = "Pairwise FST Mantel test")
+isobydist
+
+## Looks like we have isolation by distance occurring. That means that the further populations are from one another, the less interactions are occurring between them. In terms of the mussels, our analysis suggests that host fish may not be traveling around all of the mussel beds in their lifetime, which could be limiting gene flow among each population. Furthermore, in a aquatic systems, it it common that population genetics is biased towards downstream populations. That is, populations in the very upper reaches of a river system most likely contain less genetic diversity than populations in the lower reaches. 
+```
